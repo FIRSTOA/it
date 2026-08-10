@@ -1,0 +1,1 @@
+import PlaceholderPage from "../components/PlaceholderPage";export default function Page(){return <PlaceholderPage title="자산관리" desc="PC, 노트북, NAS 등 하드웨어 자산을 관리합니다." items={["전체 자산","사용중 자산","수리/회수","폐기 자산"]}/>}

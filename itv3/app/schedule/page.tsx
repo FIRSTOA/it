@@ -1,0 +1,1 @@
+import PlaceholderPage from "../components/PlaceholderPage";export default function Page(){return <PlaceholderPage title="일정관리" desc="상담, 점검, 납품 및 갱신 일정을 관리합니다." items={["오늘 일정","이번주 일정","갱신 상담","정기 점검"]}/>}

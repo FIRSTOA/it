@@ -1,0 +1,1 @@
+import PageHeader from "../components/PageHeader";export default function Page(){return <><PageHeader title="챗봇상담" desc="API 키는 나중에 Vercel 환경변수에 추가합니다."/><section className="chat-page panel"><div className="empty-chat"><i>◌</i><h2>AI 영업상담 준비 완료</h2><p>OPENAI_API_KEY를 추가하면 구글시트 데이터를 기준으로 상담을 시작합니다.</p><button disabled>API 키 설정 후 사용</button></div></section></>}

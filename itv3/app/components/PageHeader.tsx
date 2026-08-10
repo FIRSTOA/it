@@ -1,0 +1,1 @@
+export default function PageHeader({title,desc}:{title:string;desc?:string}){return <header className="page-header"><div><h1>{title}</h1>{desc&&<p>{desc}</p>}</div><div className="user-box"><span>🔔</span><b>관리자</b><i>●</i></div></header>}

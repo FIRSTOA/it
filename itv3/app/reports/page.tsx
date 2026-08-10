@@ -1,0 +1,1 @@
+import PlaceholderPage from "../components/PlaceholderPage";export default function Page(){return <PlaceholderPage title="보고서" desc="고객, 자산, 갱신, 영업 현황 보고서를 확인합니다." items={["고객 현황","갱신 보고서","영업 보고서","소프트웨어 현황"]}/>}

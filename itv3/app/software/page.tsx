@@ -1,0 +1,1 @@
+import PlaceholderPage from "../components/PlaceholderPage";export default function Page(){return <PlaceholderPage title="소프트웨어관리" desc="라이선스, 설치 프로그램, 갱신 상태를 관리합니다." items={["소프트웨어 자산","프로그램 발견","확인필요","라이선스 배정"]}/>}

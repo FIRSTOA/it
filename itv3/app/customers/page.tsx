@@ -1,0 +1,1 @@
+import PlaceholderPage from "../components/PlaceholderPage";export default function Page(){return <PlaceholderPage title="고객관리" desc="고객사와 담당자 정보를 관리합니다." items={["고객사 목록","담당자 관리","고객 상태","고객별 현황"]}/>}

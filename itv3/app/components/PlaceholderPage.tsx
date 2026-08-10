@@ -1,0 +1,2 @@
+import PageHeader from "./PageHeader";
+export default function PlaceholderPage({title,desc,items}:{title:string;desc:string;items:string[]}){return <><PageHeader title={title} desc={desc}/><section className="placeholder-grid">{items.map((x,i)=><article key={x} className="placeholder-card"><span>{String(i+1).padStart(2,"0")}</span><h2>{x}</h2><p>구글시트 데이터 연결 및 입력 기능을 추가할 수 있는 기본 화면입니다.</p><button>준비중</button></article>)}</section></>}

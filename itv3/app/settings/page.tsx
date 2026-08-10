@@ -1,0 +1,1 @@
+import PlaceholderPage from "../components/PlaceholderPage";export default function Page(){return <PlaceholderPage title="설정" desc="API, 사용자, 상태코드 및 시스템 환경을 설정합니다." items={["구글시트 연결","챗봇 API","사용자 권한","상태코드"]}/>}

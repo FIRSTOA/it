@@ -1,0 +1,1 @@
+import PlaceholderPage from "../components/PlaceholderPage";export default function Page(){return <PlaceholderPage title="영업관리" desc="갱신, 정품전환, 증설 및 신규 제안을 관리합니다." items={["영업기회","진행중 제안","계약 전환","예상 매출"]}/>}
