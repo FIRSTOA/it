@@ -6,5 +6,5 @@ const menus=[
 ];
 export default function AppShell({children}:{children:React.ReactNode}){
  const path=usePathname();
- return <div className="app"><aside className="sidebar"><div className="logo"><span>▣</span><b>퍼스트전산 ERP</b></div><nav>{menus.map(([href,icon,label])=><Link key={href} href={href} className={path===href?"active":""}><i>{icon}</i><span>{label}</span></Link>)}</nav></aside><main className="content">{children}</main></div>
+ return <div className="app"><aside className="sidebar"><div className="logo"><span>▣</span><b>퍼스트전산 IT</b></div><nav>{menus.map(([href,icon,label])=><Link key={href} href={href} className={path===href?"active":""}><i>{icon}</i><span>{label}</span></Link>)}</nav></aside><main className="content">{children}</main></div>
 }
