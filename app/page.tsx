@@ -37,6 +37,10 @@ function Title({t,u}:{t:string,u?:string}){return <div className="ptitle"><h2>{t
 
 export default async function Page(){
   const d=await getSheetData();
+  console.log(
+    "softwareAssets",
+    d.softwareAssets.slice(0,10)
+);
   const opp=d.opportunities.filter(x=>!["계약","실패"].includes(x["진행상태"]));
   const revenue=opp.reduce((s,x)=>s+num(x["예상금액"]),0);
   const perpetualCount=d.softwareAssets.filter(isPerpetual).length;
