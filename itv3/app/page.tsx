@@ -7,10 +7,28 @@ const won=(v:number)=>new Intl.NumberFormat("ko-KR",{style:"currency",currency:"
 const cname=(id:string,cs:Row[])=>cs.find(c=>c["고객사ID"]===id)?.["고객사명"]||id||"-";
 const isPerpetual=(x:Row)=>String(x["종료일"]||"").trim().includes("영구");
 
-// 종료일이 '영구', '-', 빈값이거나 상태가 제외/종료/만료인 경우 제외
-const isExcluded=(x:Row)=>{
-  const end=String(x["종료일"]||"").trim(), st=String(x["라이선스상태"]||"").trim();
-  return end.includes("영구") || end === "-" || end === "" || ["제외","종료","만료"].some(k=>st.includes(k));
+// 영구 라이선스, 빈 종료일, 만료건, 음수 D-DAY 제외
+const isExcluded = (x: Row) => {
+
+  const end = String(x["종료일"] || "").trim();
+  const st = String(x["라이선스상태"] || "").trim();
+  const dday = Number(String(x["D-DAY"] || "").trim());
+
+  return (
+    end.includes("영구") ||
+    end === "-" ||
+    end === "" ||
+
+    // 상태 제외
+    ["제외","종료","만료"].some(k => st.includes(k)) ||
+
+    // D-DAY 없음
+    String(x["D-DAY"] || "").trim() === "-" ||
+    String(x["D-DAY"] || "").trim() === "" ||
+
+    // 음수 D-DAY 제외
+    (!isNaN(dday) && dday < 0)
+  );
 };
 
 function Pill({v}:{v:string}){const d=["확인필요","만료","비정품확인","비정품의심"].includes(v),s=["정품확인","정품매칭","계약","완료","계약중"].includes(v),w=["진행중","협상단계","제안완료","갱신예정"].includes(v);return <span className={`pill ${d?"danger":s?"success":w?"warning":"neutral"}`}>{v||"-"}</span>}
@@ -23,11 +41,17 @@ export default async function Page(){
   const revenue=opp.reduce((s,x)=>s+num(x["예상금액"]),0);
   const perpetualCount=d.softwareAssets.filter(isPerpetual).length;
 
-  // [수정] 종료일/상태 제외 조건 + D-DAY가 '-' 이거나 빈값인 항목 제외
-  const renewal=d.softwareAssets.filter(x=>{
-    const ddayVal=String(x["D-DAY"]||"").trim();
-    return !isExcluded(x) && ddayVal !== "-" && ddayVal !== "" && num(x["D-DAY"])<=90;
-  }).sort((a,b)=>num(a["D-DAY"])-num(b["D-DAY"]));
+ const renewal = d.softwareAssets
+  .filter(x =>
+    !isExcluded(x) &&
+    num(x["D-DAY"]) >= 0 &&
+    num(x["D-DAY"]) <= 90
+  )
+  .sort(
+    (a,b)=>
+      num(a["D-DAY"]) -
+      num(b["D-DAY"])
+  );
 
   const bucket=(n:number)=>n<=0?"만료":n<=7?"D-7":n<=30?"D-30":n<=60?"D-60":"D-90";
   const labs=["D-90","D-60","D-30","D-7","만료"], counts=labs.map(l=>renewal.filter(x=>bucket(num(x["D-DAY"]))===l).length), max=Math.max(...counts,1);
