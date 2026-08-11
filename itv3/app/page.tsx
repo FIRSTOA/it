@@ -4,19 +4,29 @@ export const dynamic = "force-dynamic";
 
 const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1Qy08PThMptm_lq-4g1Xfvh772A4e-x7f_I_J8_1eLro/edit";
 
+// 숫자로 변환하는 도우미 (통화/퍼센트 문자열 제거)
 const num = (v?: string) => Number(String(v || "").replace(/[₩원,%\s,]/g, "")) || 0;
+
+// 원화 포맷팅 (원 단위)
 const won = (v: number) => new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 }).format(v);
+
+// 고객사ID -> 고객사명 변환 (GAS API의 '고객사' 시트 구조 반영)
 const cname = (id: string, cs: Row[]) => cs.find(c => c["고객사ID"] === id)?.["고객사명"] || id || "-";
+
+// 영구 라이선스 여부 확인
 const isPerpetual = (x: Row) => String(x["종료일"] || "").trim().includes("영구");
 
-// [가드레일] 
-// 1. 종료일에 '영구' 포함 및 빈 값/기호 제외
-// 2. 만료/제외/종료 등 비활성 라이선스 상태 제외
-// 3. D-DAY 파싱 불가 및 음수(이미 지난 만료건) 제외
+/**
+ * [가드레일 필터 로직]
+ * 1. 종료일에 '영구'가 포함되어 있거나 비어있는 항목 제외
+ * 2. 라이선스 상태가 '제외', '종료', '만료'인 항목 제외
+ * 3. D-DAY 파싱 불가 및 음수(이미 지난 만료건) 제외
+ */
 const isExcluded = (x: Row) => {
   const end = String(x["종료일"] || "").trim();
   const st = String(x["라이선스상태"] || "").trim();
-  
+
+  // "D-15" -> -15, "15" -> 15 정수 파싱
   const ddayRaw = String(x["D-DAY"] || "").replace(/[^0-9-]/g, "").trim();
   const dday = parseInt(ddayRaw, 10);
 
@@ -60,14 +70,18 @@ function Title({ t, u }: { t: string; u?: string }) {
 }
 
 export default async function Page() {
+  // GAS API (doGet) 호환 데이터 수집
   const d = await getSheetData();
 
-  const opp = d.opportunities.filter(x => !["계약", "실패"].includes(x["진행상태"]));
+  // 1. 영업기회 필터링 (GAS API의 opportunities 참조)
+  const opp = (d.opportunities || []).filter(x => !["계약", "실패"].includes(x["진행상태"]));
   const revenue = opp.reduce((s, x) => s + num(x["예상금액"]), 0);
-  const perpetualCount = d.softwareAssets.filter(isPerpetual).length;
 
-  // [핵심 조건] 종료일 영구 제외 & D-DAY 0~60일 이내 필터링 및 오름차순 정렬
-  const renewal = d.softwareAssets
+  // 2. 전체 영구 라이선스 수 계산
+  const perpetualCount = (d.softwareAssets || []).filter(isPerpetual).length;
+
+  // 3. 갱신 예정 리스트 필터링 (소프트웨어자산 시트 기준: 종료일 영구 제외 & D-DAY 0~60일 이내)
+  const renewal = (d.softwareAssets || [])
     .filter(x => {
       if (isExcluded(x)) return false;
       const ddayRaw = String(x["D-DAY"] || "").replace(/[^0-9-]/g, "").trim();
@@ -80,15 +94,16 @@ export default async function Page() {
       return ddayA - ddayB;
     });
 
-  // 차트 버킷 (D-7, D-30, D-60)
+  // 차트 데이터 구성 (D-7, D-30, D-60)
   const bucket = (n: number) => (n <= 7 ? "D-7" : n <= 30 ? "D-30" : "D-60");
   const labs = ["D-60", "D-30", "D-7"];
   const counts = labs.map(l => renewal.filter(x => bucket(num(String(x["D-DAY"]).replace(/[^0-9-]/g, ""))) === l).length);
   const max = Math.max(...counts, 1);
 
+  // 소프트웨어 상태 현황 차트 데이터
   const stats = ["정품확인", "확인필요", "만료", "비정품확인", "미도입"];
   const colors = ["#2f80ed", "#f5a623", "#ff5353", "#a8666b", "#a9b1bd"];
-  const sc = stats.map(s => d.softwareAssets.filter(x => x["라이선스상태"] === s).length);
+  const sc = stats.map(s => (d.softwareAssets || []).filter(x => x["라이선스상태"] === s).length);
   const total = Math.max(sc.reduce((a, b) => a + b, 0), 1);
 
   let start = 0;
@@ -99,22 +114,24 @@ export default async function Page() {
     return p;
   });
 
+  // 영업기회 TOP 5 집계
   const group = new Map<string, number>();
-  d.opportunities.forEach(x => {
+  (d.opportunities || []).forEach(x => {
     const k = x["기회유형"] || "기타";
     group.set(k, (group.get(k) || 0) + 1);
   });
   const top = [...group.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
   const topmax = Math.max(...top.map(x => x[1]), 1);
 
-  const asset = d.softwareAssets[0] || {};
-  const cid = asset["고객사ID"] || d.customers[0]?.["고객사ID"] || "-";
-  const cassets = d.softwareAssets.filter(x => x["고객사ID"] === cid);
+  // 하단 폼용 보조 데이터
+  const asset = (d.softwareAssets || [])[0] || {};
+  const cid = asset["고객사ID"] || (d.customers || [])[0]?.["고객사ID"] || "-";
+  const cassets = (d.softwareAssets || []).filter(x => x["고객사ID"] === cid);
   const sel = opp[0] || {};
 
   return (
     <main className="shell">
-      {/* 좌측 메뉴바 */}
+      {/* 좌측 메뉴 바 */}
       <aside className="sidebar">
         <div className="brand">
           <i className="bicon">▣</i>
@@ -133,6 +150,7 @@ export default async function Page() {
         </nav>
       </aside>
 
+      {/* 우측 메인 영역 */}
       <section className="dash">
         <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
@@ -142,7 +160,7 @@ export default async function Page() {
 
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <div className="updated">
-              최근 조회<strong>{d.updatedAt}</strong>
+              최근 동기화<strong>{d.updatedAt || "-"}</strong>
             </div>
             <a
               href={GOOGLE_SHEET_URL}
@@ -171,15 +189,17 @@ export default async function Page() {
           </div>
         </header>
 
+        {/* 상단 KPI 지표 카드리스트 */}
         <section className="kgrid">
-          <Kpi icon="♣" title="총 고객사" value={`${d.customers.length}`} sub="전체 관리 고객" tone="blue" />
-          <Kpi icon="◆" title="소프트웨어 자산" value={`${d.softwareAssets.length}`} sub="등록 자산 현황" tone="purple" />
-          <Kpi icon="▦" title="갱신 예정 (D-60)" value={`${renewal.length}`} sub="60일 이내" tone="orange" />
+          <Kpi icon="♣" title="총 고객사" value={`${(d.customers || []).length}`} sub="전체 관리 고객" tone="blue" />
+          <Kpi icon="◆" title="소프트웨어 자산" value={`${(d.softwareAssets || []).length}`} sub="등록 자산 현황" tone="purple" />
+          <Kpi icon="▦" title="갱신 예정 (D-60)" value={`${renewal.length}`} sub="60일 이내 만료" tone="orange" />
           <Kpi icon="∞" title="영구 라이선스" value={`${perpetualCount}`} sub="갱신 불필요" tone="purple" />
-          <Kpi icon="↗" title="영업기회" value={`${opp.length}`} sub="진행 중 기회" tone="green" />
-          <Kpi icon="●" title="월 예상 매출" value={won(revenue)} sub="진행 기회 합계" tone="mint" />
+          <Kpi icon="↗" title="진행 영업기회" value={`${opp.length}`} sub="진행 중 기회" tone="green" />
+          <Kpi icon="●" title="예상 매출액" value={won(revenue)} sub="진행 기회 합계" tone="mint" />
         </section>
 
+        {/* 시각화 차트 패널 */}
         <section className="agrid">
           <article className="panel chart">
             <Title t="갱신 예정 현황" u="(단위: 건)" />
@@ -232,7 +252,7 @@ export default async function Page() {
           </article>
         </section>
 
-        {/* 갱신 예정 테이블: D-60 이내만 표시 */}
+        {/* 갱신 예정 상세 테이블 (D-60 이내만 필터링) */}
         <article className="panel renewal">
           <Title t="곧 갱신 예정 고객 (D-60 이내)" />
           <div className="table">
@@ -245,15 +265,15 @@ export default async function Page() {
                   <th>수량</th>
                   <th>종료일</th>
                   <th>D-Day</th>
-                  <th>예상 금액</th>
+                  <th>월 금액</th>
                   <th>담당자</th>
                   <th>상태</th>
                 </tr>
               </thead>
               <tbody>
                 {renewal.map(x => (
-                  <tr key={x["SW자산번호"]}>
-                    <td>{cname(x["고객사ID"], d.customers)}</td>
+                  <tr key={x["SW자산번호"] || x["system_id"]}>
+                    <td>{cname(x["고객사ID"], d.customers || [])}</td>
                     <td>{x["제품명"]}</td>
                     <td>{x["플랜"] || "-"}</td>
                     <td>{x["수량"] || "-"}</td>
@@ -270,8 +290,8 @@ export default async function Page() {
                 ))}
                 {renewal.length === 0 && (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: "center", padding: "20px", color: "#888" }}>
-                      60일 이내 갱신 대상 라이선스가 없습니다.
+                    <td colSpan={9} style={{ textAlign: "center", padding: "24px", color: "#888" }}>
+                      60일 이내 갱신 대상 소프트웨어가 없습니다.
                     </td>
                   </tr>
                 )}
@@ -280,13 +300,14 @@ export default async function Page() {
           </div>
         </article>
 
+        {/* 상세 업무 정보 레이아웃 */}
         <section className="work">
           <article className="panel workcard">
-            <h3>소프트웨어 자산 입력/수정</h3>
+            <h3>소프트웨어 자산 정보</h3>
             <div className="form">
               <label>
                 고객사
-                <input value={cname(cid, d.customers)} readOnly />
+                <input value={cname(cid, d.customers || [])} readOnly />
               </label>
               <label>
                 담당자
@@ -317,16 +338,17 @@ export default async function Page() {
                 <input value={asset["라이선스상태"] || "-"} readOnly />
               </label>
             </div>
-            <small>조회용 화면이며 수정은 구글시트에서 진행합니다.</small>
+            <small>※ 조회 전용 화면입니다. 편집은 구글 시트에서 수행하세요.</small>
           </article>
+
           <article className="panel workcard middle">
-            <h3>고객사별 소프트웨어 현황 ({cid})</h3>
+            <h3>고객사별 라이선스 보유 현황 ({cid})</h3>
             <div className="summary">
               <span>
                 자산번호 <b>{asset["SW자산번호"] || "-"}</b>
               </span>
               <span>
-                고객사 <b>{cname(cid, d.customers)}</b>
+                고객사명 <b>{cname(cid, d.customers || [])}</b>
               </span>
             </div>
             <table>
@@ -335,13 +357,13 @@ export default async function Page() {
                   <th>제품명</th>
                   <th>상태</th>
                   <th>수량</th>
-                  <th>만료일</th>
-                  <th>비고</th>
+                  <th>종료일</th>
+                  <th>플랜</th>
                 </tr>
               </thead>
               <tbody>
                 {cassets.map(x => (
-                  <tr key={x["SW자산번호"]}>
+                  <tr key={x["SW자산번호"] || x["system_id"]}>
                     <td>{x["제품명"]}</td>
                     <td>
                       <Pill v={x["라이선스상태"]} />
@@ -354,8 +376,9 @@ export default async function Page() {
               </tbody>
             </table>
           </article>
+
           <article className="panel workcard">
-            <h3>영업기회 정보</h3>
+            <h3>연관 영업기회 정보</h3>
             <div className="form one">
               <label>
                 기회 유형
@@ -367,7 +390,7 @@ export default async function Page() {
               </label>
               <label>
                 관련 고객
-                <input value={cname(sel["고객사ID"], d.customers)} readOnly />
+                <input value={cname(sel["고객사ID"], d.customers || [])} readOnly />
               </label>
               <label>
                 예상 금액
