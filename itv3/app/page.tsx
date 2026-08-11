@@ -1,6 +1,8 @@
 import { getSheetData, Row } from "@/lib/sheet-api";
 
+// 캐시를 완전히 끄고 매 요청마다 새 데이터를 가져오도록 설정
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1Qy08PThMptm_lq-4g1Xfvh772A4e-x7f_I_J8_1eLro/edit";
 
