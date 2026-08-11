@@ -41,17 +41,38 @@ export default async function Page(){
   const revenue=opp.reduce((s,x)=>s+num(x["예상금액"]),0);
   const perpetualCount=d.softwareAssets.filter(isPerpetual).length;
 
- const renewal = d.softwareAssets
-  .filter(x =>
-    !isExcluded(x) &&
-    num(x["D-DAY"]) >= 0 &&
-    num(x["D-DAY"]) <= 90
-  )
-  .sort(
-    (a,b)=>
-      num(a["D-DAY"]) -
-      num(b["D-DAY"])
-  );
+const renewal = d.softwareAssets
+  .filter(x => {
+
+    const endDate = String(x["종료일"] || "").trim();
+    const ddayText = String(x["D-DAY"] || "").trim();
+
+    // 종료일 영구 제거
+    if (endDate.includes("영구")) return false;
+
+    // 종료일 비어있음 제거
+    if (!endDate || endDate === "-") return false;
+
+    // DDAY 없음 제거
+    if (!ddayText || ddayText === "-") return false;
+
+    const dday = parseInt(ddayText, 10);
+
+    // 숫자 아님 제거
+    if (isNaN(dday)) return false;
+
+    // 음수 제거
+    if (dday < 0) return false;
+
+    // 90일 초과 제거
+    if (dday > 90) return false;
+
+    return true;
+  })
+  .sort((a, b) => {
+    return parseInt(String(a["D-DAY"] || "9999"), 10)
+      - parseInt(String(b["D-DAY"] || "9999"), 10);
+  });
 
   const bucket=(n:number)=>n<=0?"만료":n<=7?"D-7":n<=30?"D-30":n<=60?"D-60":"D-90";
   const labs=["D-90","D-60","D-30","D-7","만료"], counts=labs.map(l=>renewal.filter(x=>bucket(num(x["D-DAY"]))===l).length), max=Math.max(...counts,1);
