@@ -7,27 +7,25 @@ const won = (v: number) => new Intl.NumberFormat("ko-KR", { style: "currency", c
 const cname = (id: string, cs: Row[]) => cs.find(c => c["고객사ID"] === id)?.["고객사명"] || id || "-";
 const isPerpetual = (x: Row) => String(x["종료일"] || "").trim().includes("영구");
 
-// [가드레일] 종료일 영구/빈값, 상태 제외, 음수 D-DAY 조건 필터링
+// [가드레일] 종료일 영구/빈값, 제외/만료 상태, 파싱 불가/음수 D-DAY 차단
 const isExcluded = (x: Row) => {
   const end = String(x["종료일"] || "").trim();
   const st = String(x["라이선스상태"] || "").trim();
-  const ddayRaw = String(x["D-DAY"] || "").trim();
+  
+  // 문자열 내 마이너스(-) 포함 숫자만 추출 (예: "D-15" -> "-15")
+  const ddayRaw = String(x["D-DAY"] || "").replace(/[^0-9-]/g, "").trim();
   const dday = parseInt(ddayRaw, 10);
 
   return (
-    // 1. 종료일 영구 / 미입력 / 빈값 제외
+    // 1. 종료일 영구 / 미입력 / 빈값
     end.includes("영구") ||
     end === "-" ||
     end === "" ||
 
-    // 2. 만료/제외/종료 상태 제외
+    // 2. 만료/제외/종료 상태
     ["제외", "종료", "만료"].some(k => st.includes(k)) ||
 
-    // 3. D-DAY 미입력 제외
-    ddayRaw === "-" ||
-    ddayRaw === "" ||
-
-    // 4. 숫자가 아니거나 음수 D-DAY 제외 (만료건)
+    // 3. D-DAY 파싱 불가 또는 음수 D-DAY (만료건)
     isNaN(dday) ||
     dday < 0
   );
@@ -69,20 +67,27 @@ export default async function Page() {
   const revenue = opp.reduce((s, x) => s + num(x["예상금액"]), 0);
   const perpetualCount = d.softwareAssets.filter(isPerpetual).length;
 
-  // 갱신 예정 리스트: 영구, 빈값, 음수 D-DAY 제외 + D-60 이내건만 정렬
+  // 갱신 예정 리스트: 영구/음수 D-DAY 제외 + [D-60 이내] 조건만 필터링
   const renewal = d.softwareAssets
     .filter(x => {
       if (isExcluded(x)) return false;
-      const dday = parseInt(String(x["D-DAY"] || "").trim(), 10);
-      return dday <= 60;
+      
+      const ddayRaw = String(x["D-DAY"] || "").replace(/[^0-9-]/g, "").trim();
+      const dday = parseInt(ddayRaw, 10);
+      
+      // 0일 이상 ~ 60일 이하만 포함
+      return dday >= 0 && dday <= 60;
     })
     .sort((a, b) => {
-      return parseInt(String(a["D-DAY"] || "9999"), 10) - parseInt(String(b["D-DAY"] || "9999"), 10);
+      const ddayA = parseInt(String(a["D-DAY"] || "").replace(/[^0-9-]/g, ""), 10) || 9999;
+      const ddayB = parseInt(String(b["D-DAY"] || "").replace(/[^0-9-]/g, ""), 10) || 9999;
+      return ddayA - ddayB;
     });
 
-  const bucket = (n: number) => (n <= 0 ? "만료" : n <= 7 ? "D-7" : n <= 30 ? "D-30" : "D-60");
-  const labs = ["D-60", "D-30", "D-7", "만료"];
-  const counts = labs.map(l => renewal.filter(x => bucket(num(x["D-DAY"])) === l).length);
+  // 차트 버킷 (60일 이내)
+  const bucket = (n: number) => (n <= 7 ? "D-7" : n <= 30 ? "D-30" : "D-60");
+  const labs = ["D-60", "D-30", "D-7"];
+  const counts = labs.map(l => renewal.filter(x => bucket(num(String(x["D-DAY"]).replace(/[^0-9-]/g, ""))) === l).length);
   const max = Math.max(...counts, 1);
 
   const stats = ["정품확인", "확인필요", "만료", "비정품확인", "미도입"];
@@ -216,7 +221,7 @@ export default async function Page() {
                     <td>{x["플랜"] || "-"}</td>
                     <td>{x["수량"] || "-"}</td>
                     <td>{x["종료일"] || "-"}</td>
-                    <td className={num(x["D-DAY"]) <= 30 ? "redtext" : ""}>{x["D-DAY"] || "-"}</td>
+                    <td className={num(String(x["D-DAY"]).replace(/[^0-9-]/g, "")) <= 30 ? "redtext" : ""}>{x["D-DAY"] || "-"}</td>
                     <td>{won(num(x["월금액"]))}</td>
                     <td>{x["담당자"] || "-"}</td>
                     <td>
