@@ -2,8 +2,6 @@ import { getSheetData, Row } from "@/lib/sheet-api";
 
 export const dynamic = "force-dynamic";
 
-const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1Qy08PThMptm_lq-4g1Xfvh772A4e-x7f_I_J8_1eLro/edit"; // 사용 중이신 구글 시트 URL로 필요시 수정
-
 const num = (v?: string) => Number(String(v || "").replace(/[₩원,%\s,]/g, "")) || 0;
 const won = (v: number) => new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 }).format(v);
 const cname = (id: string, cs: Row[]) => cs.find(c => c["고객사ID"] === id)?.["고객사명"] || id || "-";
@@ -14,14 +12,20 @@ const isExcluded = (x: Row) => {
   const end = String(x["종료일"] || "").trim();
   const st = String(x["라이선스상태"] || "").trim();
   
+  // 문자열 내 마이너스(-) 포함 숫자만 추출 (예: "D-15" -> "-15")
   const ddayRaw = String(x["D-DAY"] || "").replace(/[^0-9-]/g, "").trim();
   const dday = parseInt(ddayRaw, 10);
 
   return (
+    // 1. 종료일 영구 / 미입력 / 빈값
     end.includes("영구") ||
     end === "-" ||
     end === "" ||
+
+    // 2. 만료/제외/종료 상태
     ["제외", "종료", "만료"].some(k => st.includes(k)) ||
+
+    // 3. D-DAY 파싱 불가 또는 음수 D-DAY (만료건)
     isNaN(dday) ||
     dday < 0
   );
@@ -63,12 +67,15 @@ export default async function Page() {
   const revenue = opp.reduce((s, x) => s + num(x["예상금액"]), 0);
   const perpetualCount = d.softwareAssets.filter(isPerpetual).length;
 
-  // 갱신 예정 리스트: D-60 이내 조건 필터링
+  // 갱신 예정 리스트: 영구/음수 D-DAY 제외 + [D-60 이내] 조건만 필터링
   const renewal = d.softwareAssets
     .filter(x => {
       if (isExcluded(x)) return false;
+      
       const ddayRaw = String(x["D-DAY"] || "").replace(/[^0-9-]/g, "").trim();
       const dday = parseInt(ddayRaw, 10);
+      
+      // 0일 이상 ~ 60일 이하만 포함
       return dday >= 0 && dday <= 60;
     })
     .sort((a, b) => {
@@ -111,64 +118,25 @@ export default async function Page() {
 
   return (
     <main className="shell">
-      {/* 이미지 기반 좌측 메뉴바 */}
-      <aside className="sidebar">
-        <div className="brand">
-          <i className="bicon">▣</i>
-          <span>퍼스트전산 IT</span>
-        </div>
-        <nav className="smenu">
-          <a className="active"><i className="icon">▣</i> 대시보드</a>
-          <a><i className="icon">♟</i> 고객관리</a>
-          <a><i className="icon">▰</i> 자산관리</a>
-          <a><i className="icon">▦</i> 소프트웨어관리</a>
-          <a><i className="icon">↗</i> 영업관리</a>
-          <a><i className="icon">🗓</i> 일정관리</a>
-          <a><i className="icon">📊</i> 보고서</a>
-          <a><i className="icon">💬</i> 챗봇상담</a>
-          <a><i className="icon">⚙</i> 설정</a>
+      <aside>
+        <b>F</b>
+        <nav>
+          <i className="active">▦</i>
+          <i>◉</i>
+          <i>▣</i>
+          <i>⚙</i>
         </nav>
       </aside>
-
       <section className="dash">
-        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <header>
           <div>
-            <p style={{ margin: 0, fontSize: "0.85rem", opacity: 0.7 }}>FIRST IT</p>
-            <h1 style={{ margin: "2px 0 0 0" }}>대시보드</h1>
+            <p>FIRST IT</p>
+            <h1>대시보드</h1>
           </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <div className="updated">
-              최근 조회<strong>{d.updatedAt}</strong>
-            </div>
-            {/* 구글시트 바로가기 버튼 */}
-            <a
-              href={GOOGLE_SHEET_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                backgroundColor: "#0f9d58",
-                color: "#ffffff",
-                padding: "8px 14px",
-                borderRadius: "6px",
-                fontSize: "0.85rem",
-                fontWeight: 600,
-                textDecoration: "none",
-                boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-                transition: "background-color 0.2s"
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 7h10v2H7zm0 4h10v2H7zm0 4h7v2H7z"/>
-              </svg>
-              구글 시트 열기 ↗
-            </a>
+          <div className="updated">
+            최근 조회<strong>{d.updatedAt}</strong>
           </div>
         </header>
-
         <section className="kgrid">
           <Kpi icon="♣" title="총 고객사" value={`${d.customers.length}`} sub="전체 관리 고객" tone="blue" />
           <Kpi icon="◆" title="소프트웨어 자산" value={`${d.softwareAssets.length}`} sub="등록 자산 현황" tone="purple" />
@@ -177,7 +145,6 @@ export default async function Page() {
           <Kpi icon="↗" title="영업기회" value={`${opp.length}`} sub="진행 중 기회" tone="green" />
           <Kpi icon="●" title="월 예상 매출" value={won(revenue)} sub="진행 기회 합계" tone="mint" />
         </section>
-
         <section className="agrid">
           <article className="panel chart">
             <Title t="갱신 예정 현황" u="(단위: 건)" />
@@ -229,7 +196,6 @@ export default async function Page() {
             </div>
           </article>
         </section>
-
         <article className="panel renewal">
           <Title t="곧 갱신 예정 고객" />
           <div className="table">
@@ -267,7 +233,6 @@ export default async function Page() {
             </table>
           </div>
         </article>
-
         <section className="work">
           <article className="panel workcard">
             <h3>소프트웨어 자산 입력/수정</h3>
