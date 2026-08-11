@@ -69,19 +69,19 @@ export default async function Page() {
   const revenue = opp.reduce((s, x) => s + num(x["예상금액"]), 0);
   const perpetualCount = d.softwareAssets.filter(isPerpetual).length;
 
-  // 갱신 예정 리스트: 영구, 빈값, 음수 D-DAY 제외 + D-90 이내건만 정렬
+  // 갱신 예정 리스트: 영구, 빈값, 음수 D-DAY 제외 + D-60 이내건만 정렬
   const renewal = d.softwareAssets
     .filter(x => {
       if (isExcluded(x)) return false;
       const dday = parseInt(String(x["D-DAY"] || "").trim(), 10);
-      return dday <= 90;
+      return dday <= 60;
     })
     .sort((a, b) => {
       return parseInt(String(a["D-DAY"] || "9999"), 10) - parseInt(String(b["D-DAY"] || "9999"), 10);
     });
 
-  const bucket = (n: number) => (n <= 0 ? "만료" : n <= 7 ? "D-7" : n <= 30 ? "D-30" : n <= 60 ? "D-60" : "D-90");
-  const labs = ["D-90", "D-60", "D-30", "D-7", "만료"];
+  const bucket = (n: number) => (n <= 0 ? "만료" : n <= 7 ? "D-7" : n <= 30 ? "D-30" : "D-60");
+  const labs = ["D-60", "D-30", "D-7", "만료"];
   const counts = labs.map(l => renewal.filter(x => bucket(num(x["D-DAY"])) === l).length);
   const max = Math.max(...counts, 1);
 
@@ -135,7 +135,7 @@ export default async function Page() {
         <section className="kgrid">
           <Kpi icon="♣" title="총 고객사" value={`${d.customers.length}`} sub="전체 관리 고객" tone="blue" />
           <Kpi icon="◆" title="소프트웨어 자산" value={`${d.softwareAssets.length}`} sub="등록 자산 현황" tone="purple" />
-          <Kpi icon="▦" title="갱신 예정 (D-60)" value={`${renewal.filter(x => num(x["D-DAY"]) <= 60).length}`} sub="60일 이내" tone="orange" />
+          <Kpi icon="▦" title="갱신 예정 (D-60)" value={`${renewal.length}`} sub="60일 이내" tone="orange" />
           <Kpi icon="∞" title="영구 라이선스" value={`${perpetualCount}`} sub="갱신 불필요" tone="purple" />
           <Kpi icon="↗" title="영업기회" value={`${opp.length}`} sub="진행 중 기회" tone="green" />
           <Kpi icon="●" title="월 예상 매출" value={won(revenue)} sub="진행 기회 합계" tone="mint" />
