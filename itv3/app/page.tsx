@@ -6,17 +6,29 @@ export const revalidate = 0;
 
 const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1Qy08PThMptm_lq-4g1Xfvh772A4e-x7f_I_J8_1eLro/edit";
 
-// 숫자로 변환하는 도우미 (통화/퍼센트 문자열 제거)
-const num = (v?: string) => Number(String(v || "").replace(/[₩원,%\s,]/g, "")) || 0;
+// 숫자로 변환하는 도우미 (통화/퍼센트 문자열 및 공백 제거)
+const num = (v?: string | number) => Number(String(v || "").replace(/[₩원,%\s]/g, "")) || 0;
 
 // 원화 포맷팅 (원 단위)
 const won = (v: number) => new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 }).format(v);
 
 // 고객사ID -> 고객사명 변환 (GAS API의 '고객사' 시트 구조 반영)
-const cname = (id: string, cs: Row[]) => cs.find(c => c["고객사ID"] === id)?.["고객사명"] || id || "-";
+const cname = (id: string, cs: Row[]) => cs.find(c => String(c["고객사ID"]).trim() === String(id).trim())?.["고객사명"] || id || "-";
+
+// D-DAY 정수 추출 파서 (안전한 예외 처리)
+const parseDday = (v?: string | number): number => {
+  if (v === undefined || v === null || v === "") return NaN;
+  const str = String(v).trim();
+  const match = str.match(/-?\d+/);
+  return match ? parseInt(match[0], 10) : NaN;
+};
 
 // 영구 라이선스 여부 확인
-const isPerpetual = (x: Row) => String(x["종료일"] || "").trim().includes("영구");
+const isPerpetual = (x: Row) => {
+  const end = String(x["종료일"] || "").trim();
+  const state = String(x["라이선스상태"] || "").trim();
+  return end.includes("영구") || state.includes("영구");
+};
 
 /**
  * [가드레일 필터 로직]
@@ -27,13 +39,10 @@ const isPerpetual = (x: Row) => String(x["종료일"] || "").trim().includes("�
 const isExcluded = (x: Row) => {
   const end = String(x["종료일"] || "").trim();
   const st = String(x["라이선스상태"] || "").trim();
-
-  // "D-15" -> -15, "15" -> 15 정수 파싱
-  const ddayRaw = String(x["D-DAY"] || "").replace(/[^0-9-]/g, "").trim();
-  const dday = parseInt(ddayRaw, 10);
+  const dday = parseDday(x["D-DAY"]);
 
   return (
-    end.includes("영구") ||
+    isPerpetual(x) ||
     end === "-" ||
     end === "" ||
     ["제외", "종료", "만료"].some(k => st.includes(k)) ||
@@ -43,10 +52,11 @@ const isExcluded = (x: Row) => {
 };
 
 function Pill({ v }: { v: string }) {
-  const d = ["확인필요", "만료", "비정품확인", "비정품의심"].includes(v);
-  const s = ["정품확인", "정품매칭", "계약", "완료", "계약중"].includes(v);
-  const w = ["진행중", "협상단계", "제안완료", "갱신예정"].includes(v);
-  return <span className={`pill ${d ? "danger" : s ? "success" : w ? "warning" : "neutral"}`}>{v || "-"}</span>;
+  const val = String(v || "").trim();
+  const d = ["확인필요", "만료", "비정품확인", "비정품의심"].includes(val);
+  const s = ["정품확인", "정품매칭", "계약", "완료", "계약중"].includes(val);
+  const w = ["진행중", "협상단계", "제안완료", "갱신예정"].includes(val);
+  return <span className={`pill ${d ? "danger" : s ? "success" : w ? "warning" : "neutral"}`}>{val || "-"}</span>;
 }
 
 function Kpi({ icon, title, value, sub, tone }: { icon: string; title: string; value: string; sub: string; tone: string }) {
@@ -75,37 +85,43 @@ export default async function Page() {
   // GAS API (doGet) 호환 데이터 수집
   const d = await getSheetData();
 
-  // 1. 영업기회 필터링 (GAS API의 opportunities 참조)
-  const opp = (d.opportunities || []).filter(x => !["계약", "실패"].includes(x["진행상태"]));
+  const customers = d.customers || [];
+  const softwareAssets = d.softwareAssets || [];
+  const opportunities = d.opportunities || [];
+
+  // 1. 영업기회 필터링 (진행 중인 건만)
+  const opp = opportunities.filter(x => !["계약", "실패", "종료"].includes(String(x["진행상태"] || "").trim()));
   const revenue = opp.reduce((s, x) => s + num(x["예상금액"]), 0);
 
   // 2. 전체 영구 라이선스 수 계산
-  const perpetualCount = (d.softwareAssets || []).filter(isPerpetual).length;
+  const perpetualCount = softwareAssets.filter(isPerpetual).length;
 
-  // 3. 갱신 예정 리스트 필터링 (소프트웨어자산 시트 기준: 종료일 영구 제외 & D-DAY 0~60일 이내)
-  const renewal = (d.softwareAssets || [])
+  // 3. 갱신 예정 리스트 필터링 (D-DAY 0~60일 이내)
+  const renewal = softwareAssets
     .filter(x => {
       if (isExcluded(x)) return false;
-      const ddayRaw = String(x["D-DAY"] || "").replace(/[^0-9-]/g, "").trim();
-      const dday = parseInt(ddayRaw, 10);
+      const dday = parseDday(x["D-DAY"]);
       return dday >= 0 && dday <= 60;
     })
     .sort((a, b) => {
-      const ddayA = parseInt(String(a["D-DAY"] || "").replace(/[^0-9-]/g, ""), 10) || 9999;
-      const ddayB = parseInt(String(b["D-DAY"] || "").replace(/[^0-9-]/g, ""), 10) || 9999;
+      const ddayA = parseDday(a["D-DAY"]);
+      const ddayB = parseDday(b["D-DAY"]);
       return ddayA - ddayB;
     });
 
   // 차트 데이터 구성 (D-7, D-30, D-60)
-  const bucket = (n: number) => (n <= 7 ? "D-7" : n <= 30 ? "D-30" : "D-60");
-  const labs = ["D-60", "D-30", "D-7"];
-  const counts = labs.map(l => renewal.filter(x => bucket(num(String(x["D-DAY"]).replace(/[^0-9-]/g, ""))) === l).length);
+  const labs = ["D-7", "D-30", "D-60"];
+  const counts = [
+    renewal.filter(x => parseDday(x["D-DAY"]) <= 7).length,
+    renewal.filter(x => parseDday(x["D-DAY"]) > 7 && parseDday(x["D-DAY"]) <= 30).length,
+    renewal.filter(x => parseDday(x["D-DAY"]) > 30 && parseDday(x["D-DAY"]) <= 60).length,
+  ];
   const max = Math.max(...counts, 1);
 
   // 소프트웨어 상태 현황 차트 데이터
   const stats = ["정품확인", "확인필요", "만료", "비정품확인", "미도입"];
   const colors = ["#2f80ed", "#f5a623", "#ff5353", "#a8666b", "#a9b1bd"];
-  const sc = stats.map(s => (d.softwareAssets || []).filter(x => x["라이선스상태"] === s).length);
+  const sc = stats.map(s => softwareAssets.filter(x => String(x["라이선스상태"] || "").trim() === s).length);
   const total = Math.max(sc.reduce((a, b) => a + b, 0), 1);
 
   let start = 0;
@@ -118,18 +134,18 @@ export default async function Page() {
 
   // 영업기회 TOP 5 집계
   const group = new Map<string, number>();
-  (d.opportunities || []).forEach(x => {
+  opportunities.forEach(x => {
     const k = x["기회유형"] || "기타";
     group.set(k, (group.get(k) || 0) + 1);
   });
   const top = [...group.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
   const topmax = Math.max(...top.map(x => x[1]), 1);
 
-  // 하단 폼용 보조 데이터
-  const asset = (d.softwareAssets || [])[0] || {};
-  const cid = asset["고객사ID"] || (d.customers || [])[0]?.["고객사ID"] || "-";
-  const cassets = (d.softwareAssets || []).filter(x => x["고객사ID"] === cid);
-  const sel = opp[0] || {};
+  // 하단 폼용 보조 데이터 연동
+  const asset = renewal[0] || softwareAssets[0] || {};
+  const cid = asset["고객사ID"] || customers[0]?.["고객사ID"] || "-";
+  const cassets = softwareAssets.filter(x => String(x["고객사ID"]).trim() === String(cid).trim());
+  const sel = opp.find(x => String(x["고객사ID"]).trim() === String(cid).trim()) || opp[0] || {};
 
   return (
     <main className="shell">
@@ -193,8 +209,8 @@ export default async function Page() {
 
         {/* 상단 KPI 지표 카드리스트 */}
         <section className="kgrid">
-          <Kpi icon="♣" title="총 고객사" value={`${(d.customers || []).length}`} sub="전체 관리 고객" tone="blue" />
-          <Kpi icon="◆" title="소프트웨어 자산" value={`${(d.softwareAssets || []).length}`} sub="등록 자산 현황" tone="purple" />
+          <Kpi icon="♣" title="총 고객사" value={`${customers.length}`} sub="전체 관리 고객" tone="blue" />
+          <Kpi icon="◆" title="소프트웨어 자산" value={`${softwareAssets.length}`} sub="등록 자산 현황" tone="purple" />
           <Kpi icon="▦" title="갱신 예정 (D-60)" value={`${renewal.length}`} sub="60일 이내 만료" tone="orange" />
           <Kpi icon="∞" title="영구 라이선스" value={`${perpetualCount}`} sub="갱신 불필요" tone="purple" />
           <Kpi icon="↗" title="진행 영업기회" value={`${opp.length}`} sub="진행 중 기회" tone="green" />
@@ -274,13 +290,13 @@ export default async function Page() {
               </thead>
               <tbody>
                 {renewal.map(x => (
-                  <tr key={x["SW자산번호"] || x["system_id"]}>
-                    <td>{cname(x["고객사ID"], d.customers || [])}</td>
+                  <tr key={x["system_id"] || x["SW자산번호"]}>
+                    <td>{cname(x["고객사ID"], customers)}</td>
                     <td>{x["제품명"]}</td>
                     <td>{x["플랜"] || "-"}</td>
                     <td>{x["수량"] || "-"}</td>
                     <td>{x["종료일"] || "-"}</td>
-                    <td className={num(String(x["D-DAY"]).replace(/[^0-9-]/g, "")) <= 30 ? "redtext" : ""}>
+                    <td className={parseDday(x["D-DAY"]) <= 30 ? "redtext" : ""}>
                       {x["D-DAY"] || "-"}
                     </td>
                     <td>{won(num(x["월금액"]))}</td>
@@ -309,7 +325,7 @@ export default async function Page() {
             <div className="form">
               <label>
                 고객사
-                <input value={cname(cid, d.customers || [])} readOnly />
+                <input value={cname(cid, customers)} readOnly />
               </label>
               <label>
                 담당자
@@ -350,7 +366,7 @@ export default async function Page() {
                 자산번호 <b>{asset["SW자산번호"] || "-"}</b>
               </span>
               <span>
-                고객사명 <b>{cname(cid, d.customers || [])}</b>
+                고객사명 <b>{cname(cid, customers)}</b>
               </span>
             </div>
             <table>
@@ -365,7 +381,7 @@ export default async function Page() {
               </thead>
               <tbody>
                 {cassets.map(x => (
-                  <tr key={x["SW자산번호"] || x["system_id"]}>
+                  <tr key={x["system_id"] || x["SW자산번호"]}>
                     <td>{x["제품명"]}</td>
                     <td>
                       <Pill v={x["라이선스상태"]} />
@@ -392,7 +408,7 @@ export default async function Page() {
               </label>
               <label>
                 관련 고객
-                <input value={cname(sel["고객사ID"], d.customers || [])} readOnly />
+                <input value={cname(sel["고객사ID"], customers)} readOnly />
               </label>
               <label>
                 예상 금액
